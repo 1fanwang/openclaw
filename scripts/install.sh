@@ -1402,8 +1402,7 @@ install_node() {
     if [[ "$OS" == "macos" ]]; then
         ui_info "Installing Node.js via Homebrew"
         if ! run_quiet_step "Installing node@${NODE_DEFAULT_MAJOR}" brew install "node@${NODE_DEFAULT_MAJOR}"; then
-            ui_error "brew install node@${NODE_DEFAULT_MAJOR} failed"
-            echo "Re-run 'brew install node@${NODE_DEFAULT_MAJOR}' directly to see the underlying error, then rerun the installer."
+            echo "Re-run with --verbose or run 'brew install node@${NODE_DEFAULT_MAJOR}' directly, then rerun the installer."
             exit 1
         fi
         brew link "node@${NODE_DEFAULT_MAJOR}" --overwrite --force 2>/dev/null || true
