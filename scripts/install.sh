@@ -1328,13 +1328,16 @@ ensure_macos_default_node_active() {
     active_path="$(command -v node 2>/dev/null || echo "not found")"
     active_version="$(node -v 2>/dev/null || echo "missing")"
 
-    ui_error "Node.js v${NODE_DEFAULT_MAJOR} was installed but this shell is using ${active_version} (${active_path})"
-    if [[ -n "$brew_node_prefix" ]]; then
-        echo "Add this to your shell profile and restart shell:"
-        echo "  export PATH=\"${brew_node_prefix}/bin:\$PATH\""
-    else
-        echo "Ensure Homebrew node@${NODE_DEFAULT_MAJOR} is first on PATH, then rerun installer."
+    if [[ -z "$brew_node_prefix" || ! -x "${brew_node_prefix}/bin/node" ]]; then
+        ui_error "Homebrew node@${NODE_DEFAULT_MAJOR} is not installed on disk"
+        echo "The previous 'brew install' step appears to have failed silently."
+        echo "Re-run 'brew install node@${NODE_DEFAULT_MAJOR}' directly to see the underlying error, then rerun the installer."
+        return 1
     fi
+
+    ui_error "Node.js v${NODE_DEFAULT_MAJOR} was installed but this shell is using ${active_version} (${active_path})"
+    echo "Add this to your shell profile and restart shell:"
+    echo "  export PATH=\"${brew_node_prefix}/bin:\$PATH\""
     return 1
 }
 
@@ -1398,7 +1401,11 @@ check_node() {
 install_node() {
     if [[ "$OS" == "macos" ]]; then
         ui_info "Installing Node.js via Homebrew"
-        run_quiet_step "Installing node@${NODE_DEFAULT_MAJOR}" brew install "node@${NODE_DEFAULT_MAJOR}"
+        if ! run_quiet_step "Installing node@${NODE_DEFAULT_MAJOR}" brew install "node@${NODE_DEFAULT_MAJOR}"; then
+            ui_error "brew install node@${NODE_DEFAULT_MAJOR} failed"
+            echo "Re-run 'brew install node@${NODE_DEFAULT_MAJOR}' directly to see the underlying error, then rerun the installer."
+            exit 1
+        fi
         brew link "node@${NODE_DEFAULT_MAJOR}" --overwrite --force 2>/dev/null || true
         if ! ensure_macos_default_node_active; then
             exit 1
