@@ -1317,11 +1317,13 @@ function parsePluginKind(raw: unknown): PluginKind | PluginKind[] | undefined {
 export function loadPluginManifest(
   rootDir: string,
   rejectHardlinks = true,
+  rootRealPath?: string,
 ): PluginManifestLoadResult {
   const manifestPath = resolvePluginManifestPath(rootDir);
   const opened = openBoundaryFileSync({
     absolutePath: manifestPath,
     rootPath: rootDir,
+    ...(rootRealPath !== undefined ? { rootRealPath } : {}),
     boundaryLabel: "plugin root",
     maxBytes: MAX_PLUGIN_MANIFEST_BYTES,
     rejectHardlinks,

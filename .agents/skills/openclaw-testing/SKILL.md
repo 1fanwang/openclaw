@@ -122,10 +122,14 @@ gh workflow run full-release-validation.yml \
   --repo openclaw/openclaw \
   --ref main \
   -f ref=<branch-or-sha> \
-  -f workflow_ref=main \
   -f provider=openai \
   -f mode=both
 ```
+
+Run the workflow itself from the trusted current ref, normally `--ref main`;
+child workflows are dispatched from that same ref even when `ref` points at an
+older release branch or tag. Full Release Validation has no separate child
+workflow ref input; choose the trusted harness by choosing the workflow run ref.
 
 If a full run is already active on a newer `origin/main`, prefer watching that
 run over dispatching a duplicate. If you accidentally dispatch a stale duplicate,
@@ -196,7 +200,8 @@ gh workflow run openclaw-release-checks.yml \
 `pnpm openclaw qa matrix` defaults to `--profile all`. Do not assume the CLI
 default is the fast release path. Use explicit profiles:
 
-- `--profile fast --fail-fast`: release-critical Matrix transport contract
+- `--profile fast`: release-critical Matrix transport contract; add
+  `--fail-fast` only when the target CLI supports it
 - `--profile transport|media|e2ee-smoke|e2ee-deep|e2ee-cli`: sharded full
   Matrix proof
 - `OPENCLAW_QA_MATRIX_NO_REPLY_WINDOW_MS=3000`: CI-friendly no-reply quiet
@@ -231,13 +236,30 @@ gh workflow run openclaw-live-and-e2e-checks-reusable.yml \
 Useful knobs:
 
 - `docker_lanes='<lane[,lane]>'`: run selected Docker scheduler lanes against
-  prepared artifacts instead of the three release chunks.
+  prepared artifacts instead of the release chunk matrix.
 - `include_live_suites=false`: skip live/provider suites when testing Docker
   scheduler or release packaging only.
 - `live_models_only=true`: run only Docker live model coverage.
 - `live_model_providers=fireworks` (or comma/space separated providers): run one
   targeted Docker live model job instead of the full provider matrix.
 - blank `live_model_providers`: run the full live-model provider matrix.
+
+When live suites are enabled, the workflow shards broad native `pnpm test:live`
+coverage through `scripts/test-live-shard.mjs` instead of one serial `live-all`
+job:
+
+- `native-live-src-agents`
+- `native-live-src-gateway-core`
+- `native-live-src-gateway-backends`
+- `native-live-test`
+- `native-live-extensions-a-k`
+- `native-live-extensions-l-n`
+- `native-live-extensions-openai`
+- `native-live-extensions-o-z`
+- `native-live-extensions-media`
+
+Use `node scripts/test-live-shard.mjs <shard> --list` to see the exact files
+before rerunning a failed native live shard.
 
 For model-list or provider-selection fixes, use `live_models_only=true` plus the
 specific `live_model_providers` allowlist. Confirm logs show the expected
@@ -286,19 +308,25 @@ generated inside GitHub artifacts include `package_artifact_run_id`,
 exact tarball and prepared images from the failed run. When the fix changes
 package contents, omit those reuse inputs so the workflow packs a new tarball.
 Live-only targeted reruns skip the E2E images and build only the live-test
-image. Release-path normal mode fans out into four Docker chunk jobs:
+image. Release-path normal mode fans out into smaller Docker chunk jobs:
 
 - `core`
-- `package-update`
-- `plugins-runtime`
+- `package-update-openai`
+- `package-update-anthropic`
+- `package-update-core`
+- `plugins-runtime-core`
+- `plugins-runtime-install-a`
+- `plugins-runtime-install-b`
 - `bundled-channels`
 
-OpenWebUI is folded into `plugins-runtime` for full release-path coverage and
-keeps a standalone `openwebui` chunk only for OpenWebUI-only dispatches. The
-legacy `plugins-integrations` chunk still works as an aggregate alias for manual
-reruns, but the release workflow uses the split chunks so plugin runtime checks
-and bundled-channel checks can run on separate machines. The bundled-channel
-runtime-dependency coverage inside `bundled-channels`
+OpenWebUI is folded into `plugins-runtime-core` for full release-path coverage
+and keeps a standalone `openwebui` chunk only for OpenWebUI-only dispatches.
+The legacy `package-update`, `plugins-runtime`, and `plugins-integrations`
+chunks still work as aggregate aliases for manual reruns, but the release
+workflow uses the split chunks so provider installer checks, plugin runtime
+checks, bundled plugin install/uninstall shards, and bundled-channel checks can
+run on separate machines. The bundled-channel runtime-dependency coverage
+inside `bundled-channels`
 uses the split `bundled-channel-*` and `bundled-channel-update-*` lanes rather
 than the serial `bundled-channel-deps` lane, so failures produce cheap targeted
 reruns for the exact channel/update scenario. The bundled plugin
