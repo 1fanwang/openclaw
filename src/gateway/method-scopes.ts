@@ -55,6 +55,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "node.pair.request",
     "node.pair.list",
     "node.pair.reject",
+    "node.pair.remove",
     "node.pair.verify",
     "node.pair.approve",
     "device.pair.list",
@@ -184,6 +185,7 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "set-heartbeats",
     "system-event",
     "agents.files.set",
+    "update.status",
   ],
   [TALK_SECRETS_SCOPE]: [],
 };

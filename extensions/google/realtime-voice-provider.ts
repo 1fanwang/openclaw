@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   ActivityHandling,
+  Behavior,
   EndSensitivity,
+  FunctionResponseScheduling,
   Modality,
   StartSensitivity,
   TurnCoverage,
@@ -15,13 +17,21 @@ import {
 } from "@google/genai";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/provider-onboard";
 import type {
+  RealtimeVoiceAudioFormat,
   RealtimeVoiceBridge,
   RealtimeVoiceBridgeCreateRequest,
   RealtimeVoiceProviderConfig,
   RealtimeVoiceProviderPlugin,
   RealtimeVoiceTool,
+  RealtimeVoiceToolResultOptions,
 } from "openclaw/plugin-sdk/realtime-voice";
-import { convertPcmToMulaw8k, mulawToPcm, resamplePcm } from "openclaw/plugin-sdk/realtime-voice";
+import {
+  convertPcmToMulaw8k,
+  mulawToPcm,
+  REALTIME_VOICE_AUDIO_FORMAT_G711_ULAW_8KHZ,
+  REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME,
+  resamplePcm,
+} from "openclaw/plugin-sdk/realtime-voice";
 import { normalizeResolvedSecretInputString } from "openclaw/plugin-sdk/secret-input";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/text-runtime";
 import { createGoogleGenAI } from "./google-genai-runtime.js";
@@ -30,7 +40,6 @@ const GOOGLE_REALTIME_DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-12-
 const GOOGLE_REALTIME_DEFAULT_VOICE = "Kore";
 const GOOGLE_REALTIME_DEFAULT_API_VERSION = "v1beta";
 const GOOGLE_REALTIME_INPUT_SAMPLE_RATE = 16_000;
-const TELEPHONY_SAMPLE_RATE = 8000;
 const MAX_PENDING_AUDIO_CHUNKS = 320;
 const DEFAULT_AUDIO_STREAM_END_SILENCE_MS = 700;
 
@@ -288,11 +297,17 @@ function buildRealtimeInputConfig(
 }
 
 function buildFunctionDeclarations(tools: RealtimeVoiceTool[] | undefined): FunctionDeclaration[] {
-  return (tools ?? []).map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parametersJsonSchema: tool.parameters,
-  }));
+  return (tools ?? []).map((tool) => {
+    const declaration: FunctionDeclaration = {
+      name: tool.name,
+      description: tool.description,
+      parametersJsonSchema: tool.parameters,
+    };
+    if (tool.name === REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME) {
+      declaration.behavior = Behavior.NON_BLOCKING;
+    }
+    return declaration;
+  });
 }
 
 function parsePcmSampleRate(mimeType: string | undefined): number {
@@ -305,7 +320,22 @@ function isMulawSilence(audio: Buffer): boolean {
   return audio.length > 0 && audio.every((sample) => sample === 0xff);
 }
 
+function isPcm16Silence(audio: Buffer): boolean {
+  const samples = Math.floor(audio.length / 2);
+  if (samples === 0) {
+    return false;
+  }
+  for (let i = 0; i < samples; i += 1) {
+    if (audio.readInt16LE(i * 2) !== 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
+  readonly supportsToolResultContinuation = true;
+
   private session: GoogleLiveSession | null = null;
   private connected = false;
   private sessionConfigured = false;
@@ -314,8 +344,12 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
   private sessionReadyFired = false;
   private consecutiveSilenceMs = 0;
   private audioStreamEnded = false;
+  private pendingFunctionNames = new Map<string, string>();
+  private readonly audioFormat: RealtimeVoiceAudioFormat;
 
-  constructor(private readonly config: GoogleRealtimeVoiceBridgeConfig) {}
+  constructor(private readonly config: GoogleRealtimeVoiceBridgeConfig) {
+    this.audioFormat = config.audioFormat ?? REALTIME_VOICE_AUDIO_FORMAT_G711_ULAW_8KHZ;
+  }
 
   async connect(): Promise<void> {
     this.intentionallyClosed = false;
@@ -323,6 +357,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     this.sessionReadyFired = false;
     this.consecutiveSilenceMs = 0;
     this.audioStreamEnded = false;
+    this.pendingFunctionNames.clear();
 
     const ai = createGoogleGenAI({
       apiKey: this.config.apiKey,
@@ -375,6 +410,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
         onclose: () => {
           this.connected = false;
           this.sessionConfigured = false;
+          this.pendingFunctionNames.clear();
           const reason = this.intentionallyClosed ? "completed" : "error";
           this.session = null;
           this.config.onClose?.(reason);
@@ -390,7 +426,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       }
       return;
     }
-    const silent = isMulawSilence(audio);
+    const silent = this.isSilence(audio);
     if (silent && this.audioStreamEnded) {
       return;
     }
@@ -399,9 +435,10 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       this.audioStreamEnded = false;
     }
 
+    const pcm = this.toInputPcm(audio);
     const pcm16k = resamplePcm(
-      mulawToPcm(audio),
-      TELEPHONY_SAMPLE_RATE,
+      pcm,
+      this.audioFormat.sampleRateHz,
       GOOGLE_REALTIME_INPUT_SAMPLE_RATE,
     );
     this.session.sendRealtimeInput({
@@ -419,7 +456,10 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       typeof this.config.silenceDurationMs === "number"
         ? Math.max(0, Math.floor(this.config.silenceDurationMs))
         : DEFAULT_AUDIO_STREAM_END_SILENCE_MS;
-    this.consecutiveSilenceMs += Math.round((audio.length / TELEPHONY_SAMPLE_RATE) * 1000);
+    const bytesPerSample = this.audioFormat.encoding === "pcm16" ? 2 : 1;
+    this.consecutiveSilenceMs += Math.round(
+      (audio.length / bytesPerSample / this.audioFormat.sampleRateHz) * 1000,
+    );
     if (!this.audioStreamEnded && this.consecutiveSilenceMs >= silenceThresholdMs) {
       this.session.sendRealtimeInput({ audioStreamEnd: true });
       this.audioStreamEnded = true;
@@ -445,21 +485,57 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     this.sendUserMessage(greetingPrompt);
   }
 
-  submitToolResult(callId: string, result: unknown): void {
+  submitToolResult(
+    callId: string,
+    result: unknown,
+    options?: RealtimeVoiceToolResultOptions,
+  ): void {
     if (!this.session) {
       return;
     }
-    this.session.sendToolResponse({
-      functionResponses: [
-        {
-          id: callId,
-          response:
-            result && typeof result === "object"
-              ? (result as Record<string, unknown>)
-              : { output: result },
-        },
-      ],
-    });
+    const name = this.pendingFunctionNames.get(callId);
+    if (!name) {
+      this.config.onError?.(
+        new Error(
+          `Google Live function response is missing a matching function call for ${callId}`,
+        ),
+      );
+      return;
+    }
+    try {
+      const isConsultTool = name === REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME;
+      const functionResponse: FunctionResponse = {
+        id: callId,
+        name,
+        response:
+          result && typeof result === "object" && !Array.isArray(result)
+            ? (result as Record<string, unknown>)
+            : { output: result },
+      };
+      if (isConsultTool) {
+        functionResponse.scheduling = FunctionResponseScheduling.WHEN_IDLE;
+        if (options?.willContinue === true) {
+          functionResponse.willContinue = true;
+        }
+      } else if (options?.willContinue === true) {
+        this.config.onError?.(
+          new Error(
+            `Google Live continuation is only supported for ${REALTIME_VOICE_AGENT_CONSULT_TOOL_NAME}`,
+          ),
+        );
+        return;
+      }
+      this.session.sendToolResponse({
+        functionResponses: [functionResponse],
+      });
+      if (options?.willContinue !== true) {
+        this.pendingFunctionNames.delete(callId);
+      }
+    } catch (error) {
+      this.config.onError?.(
+        error instanceof Error ? error : new Error("Failed to send Google Live function response"),
+      );
+    }
   }
 
   acknowledgeMark(): void {}
@@ -471,6 +547,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
     this.pendingAudio = [];
     this.consecutiveSilenceMs = 0;
     this.audioStreamEnded = false;
+    this.pendingFunctionNames.clear();
     const session = this.session;
     this.session = null;
     session?.close();
@@ -478,6 +555,20 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
 
   isConnected(): boolean {
     return this.connected && this.sessionConfigured;
+  }
+
+  private isSilence(audio: Buffer): boolean {
+    return this.audioFormat.encoding === "pcm16" ? isPcm16Silence(audio) : isMulawSilence(audio);
+  }
+
+  private toInputPcm(audio: Buffer): Buffer {
+    return this.audioFormat.encoding === "pcm16" ? audio : mulawToPcm(audio);
+  }
+
+  private toOutputAudio(pcm: Buffer, sampleRate: number): Buffer {
+    return this.audioFormat.encoding === "pcm16"
+      ? resamplePcm(pcm, sampleRate, this.audioFormat.sampleRateHz)
+      : convertPcmToMulaw8k(pcm, sampleRate);
   }
 
   private handleMessage(message: LiveServerMessage): void {
@@ -529,9 +620,9 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
       if (part.inlineData?.data) {
         const pcm = Buffer.from(part.inlineData.data, "base64");
         const sampleRate = parsePcmSampleRate(part.inlineData.mimeType);
-        const muLaw = convertPcmToMulaw8k(pcm, sampleRate);
-        if (muLaw.length > 0) {
-          this.config.onAudio(muLaw);
+        const audio = this.toOutputAudio(pcm, sampleRate);
+        if (audio.length > 0) {
+          this.config.onAudio(audio);
           this.config.onMark?.(`audio-${randomUUID()}`);
         }
         continue;
@@ -557,6 +648,7 @@ class GoogleRealtimeVoiceBridge implements RealtimeVoiceBridge {
         continue;
       }
       const callId = call.id?.trim() || `google-live-${randomUUID()}`;
+      this.pendingFunctionNames.set(callId, name);
       this.config.onToolCall?.({
         itemId: callId,
         callId,

@@ -21,7 +21,7 @@ import { formatErrorMessage } from "../../../infra/errors.js";
 import { resolveHeartbeatSummaryForAgent } from "../../../infra/heartbeat-summary.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
-import { listRegisteredPluginCommands } from "../../../plugins/command-registry-state.js";
+import { listRegisteredPluginAgentPromptGuidance } from "../../../plugins/command-registry-state.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import {
   extractModelCompat,
@@ -639,16 +639,6 @@ export async function runEmbeddedAttempt(
       agentId: sessionAgentId,
     });
 
-    const sessionLock = await acquireSessionWriteLock({
-      sessionFile: params.sessionFile,
-      maxHoldMs: resolveSessionLockMaxHoldFromTimeout({
-        timeoutMs: resolveRunTimeoutWithCompactionGraceMs({
-          runTimeoutMs: params.timeoutMs,
-          compactionTimeoutMs: resolveCompactionTimeoutMs(params.config),
-        }),
-      }),
-    });
-
     const sessionLabel = params.sessionKey ?? params.sessionId;
     const contextInjectionMode = resolveContextInjectionMode(params.config);
     const agentDir = params.agentDir ?? resolveOpenClawAgentDir();
@@ -1142,7 +1132,7 @@ export async function runEmbeddedAttempt(
           config: params.config,
           sandboxed: sandboxInfo?.enabled === true,
         }),
-        nativeCommandNames: listRegisteredPluginCommands().map((command) => command.name),
+        nativeCommandGuidanceLines: listRegisteredPluginAgentPromptGuidance(),
         runtimeInfo,
         messageToolHints,
         sandboxInfo,
@@ -1204,6 +1194,19 @@ export async function runEmbeddedAttempt(
     const systemPromptOverride = createSystemPromptOverride(appendPrompt);
     let systemPromptText = systemPromptOverride();
     const userPromptPrefixText = bootstrapRouting.userPromptPrefixText;
+
+    // Keep the session lock scoped to transcript/session mutations. Cold plugin
+    // and tool setup can be slow, and holding the lock there blocks CLI fallback
+    // from taking over the same session when a gateway run stalls before model I/O.
+    const sessionLock = await acquireSessionWriteLock({
+      sessionFile: params.sessionFile,
+      maxHoldMs: resolveSessionLockMaxHoldFromTimeout({
+        timeoutMs: resolveRunTimeoutWithCompactionGraceMs({
+          runTimeoutMs: params.timeoutMs,
+          compactionTimeoutMs: resolveCompactionTimeoutMs(params.config),
+        }),
+      }),
+    });
 
     let sessionManager: ReturnType<typeof guardSessionManager> | undefined;
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
@@ -1832,6 +1835,7 @@ export async function runEmbeddedAttempt(
         cfg: params.config,
         trigger: params.trigger,
         runTimeoutMs: params.timeoutMs !== configuredRunTimeoutMs ? params.timeoutMs : undefined,
+        modelRequestTimeoutMs: (params.model as { requestTimeoutMs?: number }).requestTimeoutMs,
       });
       if (idleTimeoutMs > 0) {
         activeSession.agent.streamFn = streamWithIdleTimeout(
