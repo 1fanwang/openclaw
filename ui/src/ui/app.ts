@@ -68,7 +68,10 @@ import {
   refreshVisibleToolsEffectiveForCurrentSession as refreshVisibleToolsEffectiveForCurrentSessionInternal,
 } from "./controllers/agents.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
-import { loadControlUiPanels as loadControlUiPanelsInternal } from "./controllers/control-ui-panels.ts";
+import {
+  invokePanelTool as invokePanelToolInternal,
+  loadControlUiPanels as loadControlUiPanelsInternal,
+} from "./controllers/control-ui-panels.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type {
   DreamingStatus,
@@ -328,6 +331,10 @@ export class OpenClawApp extends LitElement {
   @state() panelsContributions: readonly ControlUiPanelContribution[] | null = null;
   @state() panelsError: string | null = null;
   @state() panelsLastSuccess: number | null = null;
+  @state() panelResults: Record<
+    string,
+    { loading: boolean; result: unknown; error: string | null; lastFetchedAt: number | null }
+  > = {};
   @state() whatsappLoginMessage: string | null = null;
   @state() whatsappLoginQrDataUrl: string | null = null;
   @state() whatsappLoginConnected: boolean | null = null;
@@ -687,6 +694,10 @@ export class OpenClawApp extends LitElement {
 
   async loadControlUiPanels() {
     await loadControlUiPanelsInternal(this);
+  }
+
+  async invokePanelTool(contribution: ControlUiPanelContribution) {
+    await invokePanelToolInternal(this, contribution);
   }
 
   applySettings(next: UiSettings) {
