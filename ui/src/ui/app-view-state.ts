@@ -25,6 +25,7 @@ import type {
   AgentIdentityResult,
   AttentionItem,
   ChannelsStatusSnapshot,
+  ControlUiPanelContribution,
   ConfigSnapshot,
   ConfigUiHints,
   HealthSummary,
@@ -208,6 +209,10 @@ export type AppViewState = {
   channelsSnapshot: ChannelsStatusSnapshot | null;
   channelsError: string | null;
   channelsLastSuccess: number | null;
+  panelsLoading: boolean;
+  panelsContributions: readonly ControlUiPanelContribution[] | null;
+  panelsError: string | null;
+  panelsLastSuccess: number | null;
   whatsappLoginMessage: string | null;
   whatsappLoginQrDataUrl: string | null;
   whatsappLoginConnected: boolean | null;
@@ -414,6 +419,7 @@ export type AppViewState = {
     applyLocalUserIdentity?: (next: { name?: string | null; avatar?: string | null }) => void;
     loadOverview: (opts?: { refresh?: boolean }) => Promise<void>;
     loadAssistantIdentity: () => Promise<void>;
+    loadControlUiPanels: () => Promise<void>;
     loadCron: () => Promise<void>;
     handleWhatsAppStart: (force: boolean) => Promise<void>;
     handleWhatsAppWait: () => Promise<void>;

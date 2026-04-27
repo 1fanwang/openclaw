@@ -18,6 +18,7 @@ import { loadAgentSkills, type AgentSkillsState } from "./controllers/agent-skil
 import { loadAgents, type AgentsState } from "./controllers/agents.ts";
 import { loadChannels, type ChannelsState } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema, type ConfigState } from "./controllers/config.ts";
+import { loadControlUiPanels, type ControlUiPanelsState } from "./controllers/control-ui-panels.ts";
 import {
   loadCronJobsPage,
   loadCronRuns,
@@ -114,6 +115,7 @@ type SettingsAppHost = SettingsHost &
   AgentsState &
   ChannelsState &
   ConfigState &
+  ControlUiPanelsState &
   CronState &
   DebugState &
   DevicesState &
@@ -349,6 +351,9 @@ export async function refreshActiveTab(host: SettingsHost) {
       return;
     case "channels":
       await loadChannelsTab(host);
+      return;
+    case "panels":
+      await loadControlUiPanels(app);
       return;
     case "instances":
       await loadPresence(app);

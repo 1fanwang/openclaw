@@ -164,6 +164,7 @@ const lazyDebug = createLazyView(() => import("./views/debug.ts"), notifyLazyVie
 const lazyInstances = createLazyView(() => import("./views/instances.ts"), notifyLazyViewChanged);
 const lazyLogs = createLazyView(() => import("./views/logs.ts"), notifyLazyViewChanged);
 const lazyNodes = createLazyView(() => import("./views/nodes.ts"), notifyLazyViewChanged);
+const lazyPanels = createLazyView(() => import("./views/panels.ts"), notifyLazyViewChanged);
 const lazySessions = createLazyView(() => import("./views/sessions.ts"), notifyLazyViewChanged);
 const lazySkills = createLazyView(() => import("./views/skills.ts"), notifyLazyViewChanged);
 
@@ -1591,6 +1592,19 @@ export function renderApp(state: AppViewState) {
               onNavigate: (tab) => state.setTab(tab as import("./navigation.ts").Tab),
               onRefreshLogs: () => state.loadOverview({ refresh: true }),
             })
+          : nothing}
+        ${state.tab === "panels"
+          ? lazyRender(lazyPanels, (m) =>
+              m.renderPanels({
+                state: {
+                  contributions: state.panelsContributions,
+                  loading: state.panelsLoading,
+                  error: state.panelsError,
+                  lastSuccess: state.panelsLastSuccess,
+                },
+                onRefresh: () => void state.loadControlUiPanels(),
+              }),
+            )
           : nothing}
         ${state.tab === "channels"
           ? renderLazyView(lazyChannels, (m) =>

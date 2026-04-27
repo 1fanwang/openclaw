@@ -68,6 +68,7 @@ import {
   refreshVisibleToolsEffectiveForCurrentSession as refreshVisibleToolsEffectiveForCurrentSessionInternal,
 } from "./controllers/agents.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
+import { loadControlUiPanels as loadControlUiPanelsInternal } from "./controllers/control-ui-panels.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type {
   DreamingStatus,
@@ -105,6 +106,7 @@ import type {
   ModelCatalogEntry,
   PresenceEntry,
   ChannelsStatusSnapshot,
+  ControlUiPanelContribution,
   SessionCompactionCheckpoint,
   SessionsListResult,
   SkillStatusReport,
@@ -322,6 +324,10 @@ export class OpenClawApp extends LitElement {
   @state() channelsSnapshot: ChannelsStatusSnapshot | null = null;
   @state() channelsError: string | null = null;
   @state() channelsLastSuccess: number | null = null;
+  @state() panelsLoading = false;
+  @state() panelsContributions: readonly ControlUiPanelContribution[] | null = null;
+  @state() panelsError: string | null = null;
+  @state() panelsLastSuccess: number | null = null;
   @state() whatsappLoginMessage: string | null = null;
   @state() whatsappLoginQrDataUrl: string | null = null;
   @state() whatsappLoginConnected: boolean | null = null;
@@ -679,6 +685,10 @@ export class OpenClawApp extends LitElement {
     await loadAssistantIdentityInternal(this);
   }
 
+  async loadControlUiPanels() {
+    await loadControlUiPanelsInternal(this);
+  }
+
   applySettings(next: UiSettings) {
     applySettingsInternal(this as unknown as Parameters<typeof applySettingsInternal>[0], next);
   }
@@ -693,6 +703,9 @@ export class OpenClawApp extends LitElement {
   setTab(next: Tab) {
     setTabInternal(this as unknown as Parameters<typeof setTabInternal>[0], next);
     this.navDrawerOpen = false;
+    if (next === "panels") {
+      void this.loadControlUiPanels();
+    }
   }
 
   setTheme(next: ThemeName, context?: Parameters<typeof setThemeInternal>[2]) {
