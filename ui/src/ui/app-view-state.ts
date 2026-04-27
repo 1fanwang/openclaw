@@ -213,6 +213,10 @@ export type AppViewState = {
   panelsContributions: readonly ControlUiPanelContribution[] | null;
   panelsError: string | null;
   panelsLastSuccess: number | null;
+  panelResults: Record<
+    string,
+    { loading: boolean; result: unknown; error: string | null; lastFetchedAt: number | null }
+  >;
   whatsappLoginMessage: string | null;
   whatsappLoginQrDataUrl: string | null;
   whatsappLoginConnected: boolean | null;
@@ -420,6 +424,7 @@ export type AppViewState = {
     loadOverview: (opts?: { refresh?: boolean }) => Promise<void>;
     loadAssistantIdentity: () => Promise<void>;
     loadControlUiPanels: () => Promise<void>;
+    invokePanelTool: (contribution: ControlUiPanelContribution) => Promise<void>;
     loadCron: () => Promise<void>;
     handleWhatsAppStart: (force: boolean) => Promise<void>;
     handleWhatsAppWait: () => Promise<void>;

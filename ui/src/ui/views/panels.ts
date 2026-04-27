@@ -1,5 +1,10 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
+import {
+  extractToolResultText,
+  panelKey,
+  type PanelInvokeState,
+} from "../controllers/control-ui-panels.ts";
 import type { ControlUiPanelContribution } from "../types.ts";
 
 export type PanelsState = {
@@ -7,11 +12,13 @@ export type PanelsState = {
   loading: boolean;
   error: string | null;
   lastSuccess: number | null;
+  results: Record<string, PanelInvokeState>;
 };
 
 export type PanelsProps = {
   state: PanelsState;
   onRefresh: () => void;
+  onRunTool: (contribution: ControlUiPanelContribution) => void;
 };
 
 function renderHeader(props: PanelsProps) {
@@ -68,8 +75,71 @@ function formatSourceLabel(source: ControlUiPanelContribution["panel"]["source"]
   return `iframe: ${source.url}`;
 }
 
-function renderContributionCard(c: ControlUiPanelContribution) {
+function renderToolResultBody(invoke: PanelInvokeState | undefined) {
+  if (!invoke) {
+    return html`<div
+      style="font-size:12px; font-style: italic; color: var(--color-fg-muted, #888);"
+    >
+      Click <strong>Run</strong> to invoke this tool and render its result here.
+    </div>`;
+  }
+  if (invoke.loading && invoke.result === null) {
+    return html`<div style="font-size:12px; color: var(--color-fg-muted, #888);">Running…</div>`;
+  }
+  if (invoke.error) {
+    return html`<div
+      style="font-size:12px; color: var(--color-error, #d33); white-space: pre-wrap;"
+    >
+      ${invoke.error}
+    </div>`;
+  }
+  const text = extractToolResultText(invoke.result);
+  if (text !== null) {
+    return html`<pre
+      style="
+        margin: 0;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        max-height: 360px;
+        overflow: auto;
+        padding: 8px;
+        background: var(--color-bg, #f6f8fa);
+        border-radius: 4px;
+      "
+    >
+${text}</pre
+    >`;
+  }
+  if (invoke.result !== null && invoke.result !== undefined) {
+    return html`<pre
+      style="
+        margin: 0;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 11px;
+        white-space: pre-wrap;
+        max-height: 360px;
+        overflow: auto;
+        padding: 8px;
+        background: var(--color-bg, #f6f8fa);
+        border-radius: 4px;
+      "
+    >
+${JSON.stringify(invoke.result, null, 2)}</pre
+    >`;
+  }
+  return html`<div style="font-size:12px; color: var(--color-fg-muted, #888);">
+    Tool returned no displayable content.
+  </div>`;
+}
+
+function renderContributionCard(
+  c: ControlUiPanelContribution,
+  invoke: PanelInvokeState | undefined,
+  onRunTool: (c: ControlUiPanelContribution) => void,
+) {
   const { pluginId, panel } = c;
+  const isTool = panel.source.kind === "tool";
   return html`
     <article
       class="panel-card"
@@ -106,9 +176,30 @@ function renderContributionCard(c: ControlUiPanelContribution) {
       >
         ${formatSourceLabel(panel.source)}
       </div>
-      <div style="font-size:12px; font-style: italic; color: var(--color-fg-muted, #888);">
-        Panel rendering (tool invocation, canvas mount, iframe) ships in the next D-4 phase.
-      </div>
+      ${isTool
+        ? html`
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button
+                @click=${() => onRunTool(c)}
+                ?disabled=${invoke?.loading ?? false}
+                style="padding:4px 10px; font-size:12px;"
+                title=${`Invoke ${(panel.source as { kind: "tool"; toolName: string }).toolName}`}
+              >
+                ${invoke?.loading ? "Running…" : invoke?.lastFetchedAt ? "Re-run" : "Run"}
+              </button>
+              ${invoke?.lastFetchedAt
+                ? html`<span style="font-size:11px; color: var(--color-fg-muted, #888);">
+                    Last run: ${new Date(invoke.lastFetchedAt).toLocaleTimeString()}
+                  </span>`
+                : nothing}
+            </div>
+            ${renderToolResultBody(invoke)}
+          `
+        : html`<div style="font-size:12px; font-style: italic; color: var(--color-fg-muted, #888);">
+            ${panel.source.kind === "canvas"
+              ? "Canvas mount ships in the next D-4 phase."
+              : "Iframe embed ships in the next D-4 phase."}
+          </div>`}
     </article>
   `;
 }
@@ -138,7 +229,9 @@ export function renderPanels(props: PanelsProps) {
           gap: 12px;
         "
       >
-        ${state.contributions.map((c) => renderContributionCard(c))}
+        ${state.contributions.map((c) =>
+          renderContributionCard(c, state.results[panelKey(c)], props.onRunTool),
+        )}
       </div>
     `;
   })();
