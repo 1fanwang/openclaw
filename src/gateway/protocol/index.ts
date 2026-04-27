@@ -725,6 +725,7 @@ export {
   ControlUiListPanelsParamsSchema,
   ControlUiListPanelsResultSchema,
   ControlUiPanelContributionSchema,
+  CONTROL_UI_PANELS_MAX_ITEMS,
   ModelsListParamsSchema,
   SkillsStatusParamsSchema,
   ToolsCatalogParamsSchema,

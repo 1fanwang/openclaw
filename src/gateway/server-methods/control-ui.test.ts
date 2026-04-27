@@ -129,7 +129,7 @@ describe("buildControlUiListPanelsResult", () => {
 describe("controlUiHandlers", () => {
   it("rejects non-empty params with INVALID_REQUEST", () => {
     const respond = vi.fn();
-    controlUiHandlers["controlUi.listPanels"]?.({
+    void controlUiHandlers["controlUi.listPanels"]?.({
       params: { unexpected: "field" } as unknown as Record<string, unknown>,
       respond,
       connectionId: "test",
@@ -149,7 +149,7 @@ describe("controlUiHandlers", () => {
       diagnostics: [],
     });
     const respond = vi.fn();
-    controlUiHandlers["controlUi.listPanels"]?.({
+    void controlUiHandlers["controlUi.listPanels"]?.({
       params: {},
       respond,
       connectionId: "test",
