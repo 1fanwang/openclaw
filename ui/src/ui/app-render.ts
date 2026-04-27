@@ -1601,8 +1601,10 @@ export function renderApp(state: AppViewState) {
                   loading: state.panelsLoading,
                   error: state.panelsError,
                   lastSuccess: state.panelsLastSuccess,
+                  results: state.panelResults,
                 },
                 onRefresh: () => void state.loadControlUiPanels(),
+                onRunTool: (c) => void state.invokePanelTool(c),
               }),
             )
           : nothing}
