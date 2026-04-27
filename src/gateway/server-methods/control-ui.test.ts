@@ -138,7 +138,7 @@ describe("controlUiHandlers", () => {
     expect(respond).toHaveBeenCalledWith(
       false,
       undefined,
-      expect.objectContaining({ code: expect.any(String) }),
+      expect.objectContaining({ code: "INVALID_REQUEST" }),
     );
   });
 

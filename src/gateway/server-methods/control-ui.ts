@@ -1,7 +1,7 @@
 import { loadConfig } from "../../config/config.js";
-import { loadPluginManifestRegistry } from "../../plugins/manifest-registry.js";
 import {
   listControlUiPanelContributions,
+  loadPluginManifestRegistry,
   type PluginManifestControlUiPanelContribution,
 } from "../../plugins/manifest-registry.js";
 import type { ControlUiPanelContribution, ControlUiListPanelsResult } from "../protocol/index.js";
@@ -14,10 +14,24 @@ import {
 import { CONTROL_UI_PANELS_MAX_ITEMS } from "../protocol/schema/control-ui.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
-// Internal contribution shape (from the manifest registry) → protocol shape
-// (a typed snapshot of the panel descriptor). Identity-preserving copies
-// here would couple consumers to internal types; the explicit map keeps
-// the protocol independent.
+// Map the internal source object to the protocol shape variant-by-variant.
+// Identity passthrough would silently leak any new internal-only field over
+// the wire even though the schema says `additionalProperties: false`; this
+// explicit map keeps the protocol independent of the internal record shape.
+function toProtocolPanelSource(
+  source: PluginManifestControlUiPanelContribution["panel"]["source"],
+): ControlUiPanelContribution["panel"]["source"] {
+  if (source.kind === "tool") {
+    return source.refreshSec === undefined
+      ? { kind: "tool", toolName: source.toolName }
+      : { kind: "tool", toolName: source.toolName, refreshSec: source.refreshSec };
+  }
+  if (source.kind === "canvas") {
+    return { kind: "canvas", documentId: source.documentId };
+  }
+  return { kind: "iframe", url: source.url };
+}
+
 function toProtocolContribution(
   internal: PluginManifestControlUiPanelContribution,
 ): ControlUiPanelContribution {
@@ -27,7 +41,7 @@ function toProtocolContribution(
       id: internal.panel.id,
       title: internal.panel.title,
       preferredPosition: internal.panel.preferredPosition,
-      source: internal.panel.source,
+      source: toProtocolPanelSource(internal.panel.source),
     },
   };
 }
