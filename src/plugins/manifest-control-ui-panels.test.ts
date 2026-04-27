@@ -18,6 +18,13 @@ function writeManifest(dir: string, manifest: Record<string, unknown>) {
   fs.writeFileSync(path.join(dir, "openclaw.plugin.json"), JSON.stringify(manifest), "utf-8");
 }
 
+// Loader uses JSON5; some non-finite numeric edge cases (NaN, Infinity)
+// can't be expressed via JSON.stringify (which serializes them as `null`)
+// but ARE valid JSON5 literals — so we write them as raw bytes.
+function writeManifestRaw(dir: string, body: string) {
+  fs.writeFileSync(path.join(dir, "openclaw.plugin.json"), body, "utf-8");
+}
+
 const baseManifest = {
   id: "example-plugin",
   configSchema: { type: "object" },
@@ -173,7 +180,7 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     expect(result.manifest.controlUiPanels).toBeUndefined();
   });
 
-  it("drops sub-1 / non-positive / non-finite refreshSec; keeps integers >=1", () => {
+  it("drops sub-1 / non-positive refreshSec; keeps integers >=1", () => {
     const dir = makeTempDir();
     writeManifest(dir, {
       ...baseManifest,
@@ -197,12 +204,6 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
           preferredPosition: "sidebar",
           source: { kind: "tool", toolName: "t", refreshSec: -10 },
         },
-        {
-          id: "nan",
-          title: "NaN",
-          preferredPosition: "sidebar",
-          source: { kind: "tool", toolName: "t", refreshSec: Number.NaN },
-        },
         // 60.7 → floor 60 → kept
         {
           id: "frac",
@@ -223,7 +224,7 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const panels = result.manifest.controlUiPanels ?? [];
-    for (const id of ["sub1", "zero", "neg", "nan"]) {
+    for (const id of ["sub1", "zero", "neg"]) {
       expect(panels.find((p) => p.id === id)?.source).toEqual({ kind: "tool", toolName: "t" });
     }
     expect(panels.find((p) => p.id === "frac")?.source).toEqual({
@@ -238,24 +239,66 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
   });
 
-  it("rejects iframe sources with non-http(s) / non-relative URLs", () => {
+  it("drops non-finite refreshSec (NaN / Infinity) — JSON5-only path", () => {
+    // JSON.stringify cannot serialize NaN/Infinity (they become `null`);
+    // but production manifests are parsed via JSON5, which permits these
+    // literals. Write a raw JSON5 manifest to actually exercise the
+    // `Number.isFinite` branch.
+    const dir = makeTempDir();
+    writeManifestRaw(
+      dir,
+      [
+        '{ id: "example-plugin", configSchema: { type: "object" },',
+        "  controlUiPanels: [",
+        '    { id: "nan", title: "NaN", preferredPosition: "sidebar",',
+        '      source: { kind: "tool", toolName: "t", refreshSec: NaN } },',
+        '    { id: "inf", title: "Inf", preferredPosition: "sidebar",',
+        '      source: { kind: "tool", toolName: "t", refreshSec: Infinity } },',
+        '    { id: "ok", title: "OK", preferredPosition: "sidebar",',
+        '      source: { kind: "tool", toolName: "t", refreshSec: 30 } },',
+        "  ]",
+        "}",
+      ].join("\n"),
+    );
+    const result = loadPluginManifest(dir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const panels = result.manifest.controlUiPanels ?? [];
+    for (const id of ["nan", "inf"]) {
+      expect(panels.find((p) => p.id === id)?.source).toEqual({ kind: "tool", toolName: "t" });
+    }
+    expect(panels.find((p) => p.id === "ok")?.source).toEqual({
+      kind: "tool",
+      toolName: "t",
+      refreshSec: 30,
+    });
+  });
+
+  it("rejects iframe sources with unsafe / parser-bypass URLs", () => {
     const dir = makeTempDir();
     writeManifest(dir, {
       ...baseManifest,
       controlUiPanels: [
-        // valid: https
+        // valid: https (canonical)
         {
           id: "https-ok",
           title: "HTTPS",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "https://example.com/panel" },
         },
-        // valid: http
+        // valid: http localhost
         {
           id: "http-ok",
           title: "HTTP",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "http://localhost:18789/panel" },
+        },
+        // valid: mixed-case scheme — WHATWG URL parser normalizes to lowercase
+        {
+          id: "mixed-case",
+          title: "MixedCase",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "HTTPS://Example.com/panel" },
         },
         // valid: root-relative
         {
@@ -292,14 +335,35 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
           preferredPosition: "tab",
           source: { kind: "iframe", url: "file:///etc/passwd" },
         },
-        // dropped: protocol-relative (could resolve to anything)
+        // dropped: protocol-relative
         {
           id: "proto-rel",
           title: "Proto",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "//evil.com/x" },
         },
-        // dropped: empty path
+        // dropped: backslash-prefixed (some browsers normalize \ → /)
+        {
+          id: "backslash-rel",
+          title: "BackslashRel",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "/\\evil.com/x" },
+        },
+        // dropped: backslash anywhere
+        {
+          id: "backslash-host",
+          title: "BackslashHost",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "https://example.com\\evil.com/x" },
+        },
+        // dropped: whitespace embedded
+        {
+          id: "whitespace",
+          title: "Whitespace",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "https://example.com/foo bar" },
+        },
+        // dropped: empty
         {
           id: "empty",
           title: "Empty",
@@ -312,6 +376,6 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const panels = result.manifest.controlUiPanels ?? [];
-    expect(panels.map((p) => p.id).sort()).toEqual(["http-ok", "https-ok", "rel-ok"]);
+    expect(panels.map((p) => p.id).sort()).toEqual(["http-ok", "https-ok", "mixed-case", "rel-ok"]);
   });
 });

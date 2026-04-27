@@ -722,8 +722,40 @@ function isControlUiPanelPosition(value: unknown): value is PluginManifestContro
 // Accept http/https or root-relative URLs only. The manifest field flows
 // straight to an iframe `src` once the SPA mount lands, so reject schemes
 // that would let a manifest inject script/data into the control UI shell
-// (`javascript:`, `data:`, `vbscript:`, `file:`, etc.).
-const SAFE_IFRAME_URL_RE = /^(https?:\/\/|\/[^\/])/;
+// (`javascript:`, `data:`, `vbscript:`, `file:`, etc.) and reject anything
+// that browsers/parsers might normalize into a protocol-relative URL.
+//
+// Two forms are allowed:
+//   1. Absolute URL with http(s) scheme — validated via the WHATWG URL
+//      parser (`new URL`) so case-insensitive scheme handling and IDN
+//      normalization come from the standard.
+//   2. Root-relative path starting with `/X` where X is neither `/` nor
+//      `\` — rejects protocol-relative `//evil.com`, backslash-prefixed
+//      `/\evil.com` (which some browsers normalize to `//evil.com`), and
+//      bare `/`.
+function isSafeIframeUrl(url: string): boolean {
+  // Reject backslashes outright; some URL parsers normalize them to `/`,
+  // which would let `\\evil.com` slip through as protocol-relative.
+  if (url.includes("\\")) {
+    return false;
+  }
+  // Reject embedded whitespace anywhere; the manifest is plugin-author
+  // controlled but the URL still flows to an iframe `src`.
+  if (/\s/.test(url)) {
+    return false;
+  }
+  if (url.startsWith("/")) {
+    // Root-relative: `/x...` only. Rejects bare `/` and `//evil.com`.
+    return /^\/[^/]/.test(url);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === "http:" || parsed.protocol === "https:";
+}
 
 function normalizeControlUiPanelSource(
   value: unknown,
@@ -758,7 +790,7 @@ function normalizeControlUiPanelSource(
   }
   if (kind === "iframe") {
     const url = normalizeOptionalString(value.url);
-    if (!url || !SAFE_IFRAME_URL_RE.test(url)) {
+    if (!url || !isSafeIframeUrl(url)) {
       return undefined;
     }
     return { kind: "iframe", url };
