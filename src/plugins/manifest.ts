@@ -719,34 +719,32 @@ function isControlUiPanelPosition(value: unknown): value is PluginManifestContro
   );
 }
 
-// Accept http/https or root-relative URLs only. The manifest field flows
-// straight to an iframe `src` once the SPA mount lands, so reject schemes
-// that would let a manifest inject script/data into the control UI shell
-// (`javascript:`, `data:`, `vbscript:`, `file:`, etc.) and reject anything
-// that browsers/parsers might normalize into a protocol-relative URL.
+// Iframe URL allowlist for v1. Manifest field flows straight to an iframe
+// `src` once the SPA mount lands, so the validator is intentionally narrow:
 //
-// Two forms are allowed:
-//   1. Absolute URL with http(s) scheme — validated via the WHATWG URL
-//      parser (`new URL`) so case-insensitive scheme handling and IDN
-//      normalization come from the standard.
-//   2. Root-relative path starting with `/X` where X is neither `/` nor
-//      `\` — rejects protocol-relative `//evil.com`, backslash-prefixed
-//      `/\evil.com` (which some browsers normalize to `//evil.com`), and
-//      bare `/`.
+//   * Only absolute URLs are accepted; root-relative paths are deferred to
+//     the SPA mount design (D-4) where same-origin scoping rules can be
+//     applied with knowledge of plugin id and route ownership.
+//   * Scheme must be `https:`. The single exception is loopback hostnames
+//     (`localhost`, `127.0.0.1`, `[::1]`) under `http:`, which exist for
+//     local-dev plugin authoring; HTTPS Control UI hosts will still flag
+//     those as mixed content but the plugin author at least sees a clear
+//     reason at validation time.
+//   * Any backslash anywhere — even in path / query — is rejected, because
+//     some URL parsers normalize `\` to `/` and could turn an apparent
+//     same-origin URL into a protocol-relative one.
+//   * Embedded whitespace is rejected outright.
+//
+// Validation uses the WHATWG URL parser so scheme normalization and IDN
+// handling come from the standard rather than ad-hoc regex.
+const HTTP_LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
 function isSafeIframeUrl(url: string): boolean {
-  // Reject backslashes outright; some URL parsers normalize them to `/`,
-  // which would let `\\evil.com` slip through as protocol-relative.
   if (url.includes("\\")) {
     return false;
   }
-  // Reject embedded whitespace anywhere; the manifest is plugin-author
-  // controlled but the URL still flows to an iframe `src`.
   if (/\s/.test(url)) {
     return false;
-  }
-  if (url.startsWith("/")) {
-    // Root-relative: `/x...` only. Rejects bare `/` and `//evil.com`.
-    return /^\/[^/]/.test(url);
   }
   let parsed: URL;
   try {
@@ -754,7 +752,15 @@ function isSafeIframeUrl(url: string): boolean {
   } catch {
     return false;
   }
-  return parsed.protocol === "http:" || parsed.protocol === "https:";
+  if (parsed.protocol === "https:") {
+    return true;
+  }
+  if (parsed.protocol === "http:") {
+    // `URL.host` includes the port (e.g. "localhost:8080"); compare on
+    // hostname which is just the host part.
+    return HTTP_LOCALHOST_HOSTS.has(parsed.hostname);
+  }
+  return false;
 }
 
 function normalizeControlUiPanelSource(

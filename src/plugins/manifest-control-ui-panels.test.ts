@@ -274,7 +274,7 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
   });
 
-  it("rejects iframe sources with unsafe / parser-bypass URLs", () => {
+  it("only allows https (or http to loopback hosts) for iframe sources", () => {
     const dir = makeTempDir();
     writeManifest(dir, {
       ...baseManifest,
@@ -286,75 +286,91 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
           preferredPosition: "tab",
           source: { kind: "iframe", url: "https://example.com/panel" },
         },
-        // valid: http localhost
+        // valid: http localhost (dev-loop carve-out)
         {
-          id: "http-ok",
-          title: "HTTP",
+          id: "http-localhost",
+          title: "HTTPLocalhost",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "http://localhost:18789/panel" },
         },
-        // valid: mixed-case scheme — WHATWG URL parser normalizes to lowercase
+        // valid: http 127.0.0.1
+        {
+          id: "http-127",
+          title: "HTTP127",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "http://127.0.0.1/panel" },
+        },
+        // valid: http [::1] (IPv6 loopback)
+        {
+          id: "http-v6",
+          title: "HTTPv6",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "http://[::1]/panel" },
+        },
+        // valid: mixed-case scheme — WHATWG URL parser lowercases to https:
         {
           id: "mixed-case",
           title: "MixedCase",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "HTTPS://Example.com/panel" },
         },
-        // valid: root-relative
+        // dropped: http to non-loopback host (mixed-content + same-origin risks)
         {
-          id: "rel-ok",
-          title: "Relative",
+          id: "http-public",
+          title: "HTTPPublic",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "http://example.com/panel" },
+        },
+        // dropped: root-relative deferred to D-4 SPA mount design
+        {
+          id: "rel",
+          title: "Rel",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "/plugin/panel" },
         },
-        // dropped: javascript:
+        // dropped: javascript:, data:, vbscript:, file:, protocol-relative
         {
           id: "js",
           title: "JS",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "javascript:alert(1)" },
         },
-        // dropped: data:
         {
           id: "data",
           title: "Data",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "data:text/html,<script>alert(1)</script>" },
         },
-        // dropped: vbscript:
         {
           id: "vb",
           title: "VB",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "vbscript:msgbox" },
         },
-        // dropped: file:
         {
           id: "file",
           title: "File",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "file:///etc/passwd" },
         },
-        // dropped: protocol-relative
         {
           id: "proto-rel",
           title: "Proto",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "//evil.com/x" },
         },
-        // dropped: backslash-prefixed (some browsers normalize \ → /)
-        {
-          id: "backslash-rel",
-          title: "BackslashRel",
-          preferredPosition: "tab",
-          source: { kind: "iframe", url: "/\\evil.com/x" },
-        },
-        // dropped: backslash anywhere
+        // dropped: backslash bypass attempts
         {
           id: "backslash-host",
           title: "BackslashHost",
           preferredPosition: "tab",
           source: { kind: "iframe", url: "https://example.com\\evil.com/x" },
+        },
+        {
+          id: "backslash-path",
+          title: "BackslashPath",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "https://example.com/x\\y" },
         },
         // dropped: whitespace embedded
         {
@@ -376,6 +392,12 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const panels = result.manifest.controlUiPanels ?? [];
-    expect(panels.map((p) => p.id).sort()).toEqual(["http-ok", "https-ok", "mixed-case", "rel-ok"]);
+    expect(panels.map((p) => p.id).sort()).toEqual([
+      "http-127",
+      "http-localhost",
+      "http-v6",
+      "https-ok",
+      "mixed-case",
+    ]);
   });
 });
