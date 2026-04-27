@@ -117,17 +117,18 @@ export type PluginManifestControlUiPanelSource =
   | { kind: "iframe"; url: string };
 
 /**
- * Cheap control-UI panel metadata exposed before plugin runtime loads. The
- * loader records contributions into a read-only registry; the SPA reads the
- * collated list via a documented gateway protocol method and mounts each
- * panel using the requested `preferredPosition` and `source`.
+ * Cheap control-UI panel metadata exposed before plugin runtime loads. This
+ * PR adds the manifest contract + `loadPluginManifest` normalization only —
+ * downstream consumers (a read-only registry accessor, a gateway protocol
+ * method, the SPA mount contract) are intentionally separate, additive
+ * follow-ups so each layer can be reviewed independently.
  *
  * Manifest-first per `AGENTS.md` direction: no mutable runtime registry; no
  * `register*` call needed. Plugins without a SPA-aware host (MCP stdio,
- * CLI-only flows) silently ignore the field.
+ * CLI-only flows) can leave the field unread.
  */
 export type PluginManifestControlUiPanel = {
-  /** Unique panel id within this plugin (loader scopes by `<plugin-id>:<panel-id>`). */
+  /** Unique panel id within this plugin; cross-plugin scoping is a registry concern (follow-up). */
   id: string;
   title: string;
   preferredPosition: PluginManifestControlUiPanelPosition;
@@ -718,6 +719,12 @@ function isControlUiPanelPosition(value: unknown): value is PluginManifestContro
   );
 }
 
+// Accept http/https or root-relative URLs only. The manifest field flows
+// straight to an iframe `src` once the SPA mount lands, so reject schemes
+// that would let a manifest inject script/data into the control UI shell
+// (`javascript:`, `data:`, `vbscript:`, `file:`, etc.).
+const SAFE_IFRAME_URL_RE = /^(https?:\/\/|\/[^\/])/;
+
 function normalizeControlUiPanelSource(
   value: unknown,
 ): PluginManifestControlUiPanelSource | undefined {
@@ -731,10 +738,13 @@ function normalizeControlUiPanelSource(
       return undefined;
     }
     const refreshRaw = value.refreshSec;
-    const refreshSec =
-      typeof refreshRaw === "number" && Number.isFinite(refreshRaw) && refreshRaw > 0
-        ? Math.floor(refreshRaw)
-        : undefined;
+    let refreshSec: number | undefined;
+    if (typeof refreshRaw === "number" && Number.isFinite(refreshRaw)) {
+      const floored = Math.floor(refreshRaw);
+      if (floored >= 1) {
+        refreshSec = floored;
+      }
+    }
     return refreshSec === undefined
       ? { kind: "tool", toolName }
       : { kind: "tool", toolName, refreshSec };
@@ -748,7 +758,7 @@ function normalizeControlUiPanelSource(
   }
   if (kind === "iframe") {
     const url = normalizeOptionalString(value.url);
-    if (!url) {
+    if (!url || !SAFE_IFRAME_URL_RE.test(url)) {
       return undefined;
     }
     return { kind: "iframe", url };

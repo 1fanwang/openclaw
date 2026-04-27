@@ -6,8 +6,8 @@ import { cleanupTrackedTempDirs, makeTrackedTempDir } from "./test-helpers/fs-fi
 
 const tempDirs: string[] = [];
 
-afterEach(async () => {
-  await cleanupTrackedTempDirs(tempDirs);
+afterEach(() => {
+  cleanupTrackedTempDirs(tempDirs);
 });
 
 function makeTempDir() {
@@ -173,28 +173,49 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     expect(result.manifest.controlUiPanels).toBeUndefined();
   });
 
-  it("ignores non-positive or non-finite refreshSec", () => {
+  it("drops sub-1 / non-positive / non-finite refreshSec; keeps integers >=1", () => {
     const dir = makeTempDir();
     writeManifest(dir, {
       ...baseManifest,
       controlUiPanels: [
+        // Sub-1 floors to 0 → dropped (no refreshSec on the parsed panel)
         {
-          id: "a",
-          title: "A",
+          id: "sub1",
+          title: "Sub1",
+          preferredPosition: "sidebar",
+          source: { kind: "tool", toolName: "t", refreshSec: 0.5 },
+        },
+        {
+          id: "zero",
+          title: "Zero",
           preferredPosition: "sidebar",
           source: { kind: "tool", toolName: "t", refreshSec: 0 },
         },
         {
-          id: "b",
-          title: "B",
+          id: "neg",
+          title: "Neg",
           preferredPosition: "sidebar",
           source: { kind: "tool", toolName: "t", refreshSec: -10 },
         },
         {
-          id: "c",
-          title: "C",
+          id: "nan",
+          title: "NaN",
+          preferredPosition: "sidebar",
+          source: { kind: "tool", toolName: "t", refreshSec: Number.NaN },
+        },
+        // 60.7 → floor 60 → kept
+        {
+          id: "frac",
+          title: "Frac",
           preferredPosition: "sidebar",
           source: { kind: "tool", toolName: "t", refreshSec: 60.7 },
+        },
+        // 1 → kept (boundary)
+        {
+          id: "one",
+          title: "One",
+          preferredPosition: "sidebar",
+          source: { kind: "tool", toolName: "t", refreshSec: 1 },
         },
       ],
     });
@@ -202,13 +223,95 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const panels = result.manifest.controlUiPanels ?? [];
-    expect(panels.find((p) => p.id === "a")?.source).toEqual({ kind: "tool", toolName: "t" });
-    expect(panels.find((p) => p.id === "b")?.source).toEqual({ kind: "tool", toolName: "t" });
-    // Floored to 60
-    expect(panels.find((p) => p.id === "c")?.source).toEqual({
+    for (const id of ["sub1", "zero", "neg", "nan"]) {
+      expect(panels.find((p) => p.id === id)?.source).toEqual({ kind: "tool", toolName: "t" });
+    }
+    expect(panels.find((p) => p.id === "frac")?.source).toEqual({
       kind: "tool",
       toolName: "t",
       refreshSec: 60,
     });
+    expect(panels.find((p) => p.id === "one")?.source).toEqual({
+      kind: "tool",
+      toolName: "t",
+      refreshSec: 1,
+    });
+  });
+
+  it("rejects iframe sources with non-http(s) / non-relative URLs", () => {
+    const dir = makeTempDir();
+    writeManifest(dir, {
+      ...baseManifest,
+      controlUiPanels: [
+        // valid: https
+        {
+          id: "https-ok",
+          title: "HTTPS",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "https://example.com/panel" },
+        },
+        // valid: http
+        {
+          id: "http-ok",
+          title: "HTTP",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "http://localhost:18789/panel" },
+        },
+        // valid: root-relative
+        {
+          id: "rel-ok",
+          title: "Relative",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "/plugin/panel" },
+        },
+        // dropped: javascript:
+        {
+          id: "js",
+          title: "JS",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "javascript:alert(1)" },
+        },
+        // dropped: data:
+        {
+          id: "data",
+          title: "Data",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "data:text/html,<script>alert(1)</script>" },
+        },
+        // dropped: vbscript:
+        {
+          id: "vb",
+          title: "VB",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "vbscript:msgbox" },
+        },
+        // dropped: file:
+        {
+          id: "file",
+          title: "File",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "file:///etc/passwd" },
+        },
+        // dropped: protocol-relative (could resolve to anything)
+        {
+          id: "proto-rel",
+          title: "Proto",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "//evil.com/x" },
+        },
+        // dropped: empty path
+        {
+          id: "empty",
+          title: "Empty",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "" },
+        },
+      ],
+    });
+    const result = loadPluginManifest(dir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const panels = result.manifest.controlUiPanels ?? [];
+    expect(panels.map((p) => p.id).sort()).toEqual(["http-ok", "https-ok", "rel-ok"]);
   });
 });
