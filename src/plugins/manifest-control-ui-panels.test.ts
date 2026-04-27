@@ -36,7 +36,9 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     writeManifest(dir, baseManifest);
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.manifest.controlUiPanels).toBeUndefined();
   });
 
@@ -55,7 +57,9 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.manifest.controlUiPanels).toEqual([
       {
         id: "status",
@@ -87,7 +91,9 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.manifest.controlUiPanels).toHaveLength(2);
     expect(result.manifest.controlUiPanels?.[0]?.source).toEqual({
       kind: "canvas",
@@ -155,7 +161,9 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.manifest.controlUiPanels).toEqual([
       {
         id: "ok",
@@ -176,7 +184,9 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.manifest.controlUiPanels).toBeUndefined();
   });
 
@@ -222,7 +232,9 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     const panels = result.manifest.controlUiPanels ?? [];
     for (const id of ["sub1", "zero", "neg"]) {
       expect(panels.find((p) => p.id === id)?.source).toEqual({ kind: "tool", toolName: "t" });
@@ -262,7 +274,9 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     );
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     const panels = result.manifest.controlUiPanels ?? [];
     for (const id of ["nan", "inf"]) {
       expect(panels.find((p) => p.id === id)?.source).toEqual({ kind: "tool", toolName: "t" });
@@ -403,9 +417,11 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
     });
     const result = loadPluginManifest(dir);
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     const panels = result.manifest.controlUiPanels ?? [];
-    expect(panels.map((p) => p.id).sort()).toEqual([
+    expect(panels.map((p) => p.id).toSorted()).toEqual([
       "http-127",
       "http-localhost",
       "http-v6",
