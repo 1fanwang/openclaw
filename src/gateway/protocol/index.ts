@@ -69,6 +69,13 @@ import {
   CommandsListParamsSchema,
   type CommandsListResult,
   CommandsListResultSchema,
+  type ControlUiListPanelsParams,
+  ControlUiListPanelsParamsSchema,
+  type ControlUiListPanelsResult,
+  ControlUiListPanelsResultSchema,
+  type ControlUiPanelContribution,
+  ControlUiPanelContributionSchema,
+  CONTROL_UI_PANELS_MAX_ITEMS,
   type ChatAbortParams,
   ChatAbortParamsSchema,
   type ChatEvent,
@@ -317,6 +324,9 @@ const ajv = new (AjvPkg as unknown as new (opts?: object) => import("ajv").defau
 });
 
 export const validateCommandsListParams = ajv.compile<CommandsListParams>(CommandsListParamsSchema);
+export const validateControlUiListPanelsParams = ajv.compile<ControlUiListPanelsParams>(
+  ControlUiListPanelsParamsSchema,
+);
 export const validateConnectParams = ajv.compile<ConnectParams>(ConnectParamsSchema);
 export const validateRequestFrame = ajv.compile<RequestFrame>(RequestFrameSchema);
 export const validateResponseFrame = ajv.compile<ResponseFrame>(ResponseFrameSchema);
@@ -676,6 +686,9 @@ export {
   AgentsListResultSchema,
   CommandsListParamsSchema,
   CommandsListResultSchema,
+  ControlUiListPanelsParamsSchema,
+  ControlUiListPanelsResultSchema,
+  ControlUiPanelContributionSchema,
   ModelsListParamsSchema,
   SkillsStatusParamsSchema,
   ToolsCatalogParamsSchema,
@@ -784,6 +797,9 @@ export type {
   CommandsListParams,
   CommandsListResult,
   CommandEntry,
+  ControlUiListPanelsParams,
+  ControlUiListPanelsResult,
+  ControlUiPanelContribution,
   SkillsStatusParams,
   ToolsCatalogParams,
   ToolsCatalogResult,

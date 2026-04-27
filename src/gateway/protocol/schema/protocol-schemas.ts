@@ -81,6 +81,11 @@ import {
   UpdateRunParamsSchema,
 } from "./config.js";
 import {
+  ControlUiListPanelsParamsSchema,
+  ControlUiListPanelsResultSchema,
+  ControlUiPanelContributionSchema,
+} from "./control-ui.js";
+import {
   CronAddParamsSchema,
   CronJobSchema,
   CronListParamsSchema,
@@ -313,6 +318,9 @@ export const ProtocolSchemas = {
   CommandEntry: CommandEntrySchema,
   CommandsListParams: CommandsListParamsSchema,
   CommandsListResult: CommandsListResultSchema,
+  ControlUiPanelContribution: ControlUiPanelContributionSchema,
+  ControlUiListPanelsParams: ControlUiListPanelsParamsSchema,
+  ControlUiListPanelsResult: ControlUiListPanelsResultSchema,
   SkillsStatusParams: SkillsStatusParamsSchema,
   ToolsCatalogParams: ToolsCatalogParamsSchema,
   ToolCatalogProfile: ToolCatalogProfileSchema,
