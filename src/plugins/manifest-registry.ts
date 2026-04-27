@@ -761,13 +761,15 @@ export function loadPluginManifestRegistry(
  * One contribution from a single plugin's `controlUiPanels` manifest field,
  * carrying the contributing plugin's id alongside the panel descriptor.
  *
- * Cross-plugin id scoping happens here, not in the manifest validator: each
- * panel keyed by `<pluginId>:<panel.id>` so two plugins can independently
- * declare a panel id like `status` without colliding.
+ * Cross-plugin id scoping is represented by the returned `pluginId` plus
+ * `panel.id`: consumers can address a panel as `<pluginId>:<panel.id>` so
+ * two plugins can independently declare a panel id like `status` without
+ * colliding. Computing the scoped key is left to the consumer to keep
+ * this struct minimal; it's a one-liner where it's needed.
  */
 export type PluginManifestControlUiPanelContribution = {
-  pluginId: string;
-  panel: PluginManifestControlUiPanel;
+  readonly pluginId: string;
+  readonly panel: PluginManifestControlUiPanel;
 };
 
 /**
@@ -783,7 +785,7 @@ export type PluginManifestControlUiPanelContribution = {
  */
 export function listControlUiPanelContributions(
   registry: PluginManifestRegistry,
-): PluginManifestControlUiPanelContribution[] {
+): readonly PluginManifestControlUiPanelContribution[] {
   const out: PluginManifestControlUiPanelContribution[] = [];
   for (const record of registry.plugins) {
     if (!record.controlUiPanels) {
