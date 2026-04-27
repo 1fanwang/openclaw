@@ -104,6 +104,37 @@ export type PluginManifestActivation = {
   onCapabilities?: PluginManifestActivationCapability[];
 };
 
+export type PluginManifestControlUiPanelPosition = "sidebar" | "dock-right" | "tab";
+
+/**
+ * Discriminated source for how the control UI materializes a panel body. Each
+ * `kind` reuses an existing rendering pathway (chat-tool-card / canvas-doc /
+ * iframe) so the panel registration is purely additive on the SPA side.
+ */
+export type PluginManifestControlUiPanelSource =
+  | { kind: "tool"; toolName: string; refreshSec?: number }
+  | { kind: "canvas"; documentId: string }
+  | { kind: "iframe"; url: string };
+
+/**
+ * Cheap control-UI panel metadata exposed before plugin runtime loads. This
+ * PR adds the manifest contract + `loadPluginManifest` normalization only —
+ * downstream consumers (a read-only registry accessor, a gateway protocol
+ * method, the SPA mount contract) are intentionally separate, additive
+ * follow-ups so each layer can be reviewed independently.
+ *
+ * Manifest-first per `AGENTS.md` direction: no mutable runtime registry; no
+ * `register*` call needed. Plugins without a SPA-aware host (MCP stdio,
+ * CLI-only flows) can leave the field unread.
+ */
+export type PluginManifestControlUiPanel = {
+  /** Unique panel id within this plugin; cross-plugin scoping is a registry concern (follow-up). */
+  id: string;
+  title: string;
+  preferredPosition: PluginManifestControlUiPanelPosition;
+  source: PluginManifestControlUiPanelSource;
+};
+
 export type PluginManifestSetupProvider = {
   /** Provider id surfaced during setup/onboarding. */
   id: string;
@@ -249,6 +280,8 @@ export type PluginManifest = {
   providerAuthChoices?: PluginManifestProviderAuthChoice[];
   /** Cheap activation planner metadata exposed before plugin runtime loads. */
   activation?: PluginManifestActivation;
+  /** Cheap control-UI panel metadata exposed before plugin runtime loads. */
+  controlUiPanels?: PluginManifestControlUiPanel[];
   /** Cheap setup/onboarding metadata exposed before plugin runtime loads. */
   setup?: PluginManifestSetup;
   /** Cheap QA runner metadata exposed before plugin runtime loads. */
@@ -673,6 +706,139 @@ function normalizeManifestActivation(value: unknown): PluginManifestActivation |
   return Object.keys(activation).length > 0 ? activation : undefined;
 }
 
+const CONTROL_UI_PANEL_POSITIONS = new Set<PluginManifestControlUiPanelPosition>([
+  "sidebar",
+  "dock-right",
+  "tab",
+]);
+
+function isControlUiPanelPosition(value: unknown): value is PluginManifestControlUiPanelPosition {
+  return (
+    typeof value === "string" &&
+    CONTROL_UI_PANEL_POSITIONS.has(value as PluginManifestControlUiPanelPosition)
+  );
+}
+
+// Iframe URL allowlist for v1. Manifest field flows straight to an iframe
+// `src` once the SPA mount lands, so the validator is intentionally narrow:
+//
+//   * Only absolute URLs are accepted; root-relative paths are deferred to
+//     the SPA mount design (D-4) where same-origin scoping rules can be
+//     applied with knowledge of plugin id and route ownership.
+//   * Scheme must be `https:`. The single exception is loopback hostnames
+//     (`localhost`, `127.0.0.1`, `[::1]`) under `http:`, which exist for
+//     local-dev plugin authoring; HTTPS Control UI hosts will still flag
+//     those as mixed content but the plugin author at least sees a clear
+//     reason at validation time.
+//   * Any backslash anywhere — even in path / query — is rejected, because
+//     some URL parsers normalize `\` to `/` and could turn an apparent
+//     same-origin URL into a protocol-relative one.
+//   * Embedded whitespace is rejected outright.
+//
+// Validation uses the WHATWG URL parser so scheme normalization and IDN
+// handling come from the standard rather than ad-hoc regex.
+const HTTP_LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function isSafeIframeUrl(url: string): boolean {
+  if (url.includes("\\")) {
+    return false;
+  }
+  if (/\s/.test(url)) {
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  // Reject userinfo (`https://user:pass@host/...`) — these obscure the
+  // real host and leak credentials via the iframe request.
+  if (parsed.username !== "" || parsed.password !== "") {
+    return false;
+  }
+  if (parsed.protocol === "https:") {
+    return true;
+  }
+  if (parsed.protocol === "http:") {
+    // `URL.host` includes the port (e.g. "localhost:8080"); compare on
+    // hostname which is just the host part.
+    return HTTP_LOCALHOST_HOSTS.has(parsed.hostname);
+  }
+  return false;
+}
+
+function normalizeControlUiPanelSource(
+  value: unknown,
+): PluginManifestControlUiPanelSource | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const kind = normalizeOptionalString(value.kind);
+  if (kind === "tool") {
+    const toolName = normalizeOptionalString(value.toolName);
+    if (!toolName) {
+      return undefined;
+    }
+    const refreshRaw = value.refreshSec;
+    let refreshSec: number | undefined;
+    if (typeof refreshRaw === "number" && Number.isFinite(refreshRaw)) {
+      const floored = Math.floor(refreshRaw);
+      if (floored >= 1) {
+        refreshSec = floored;
+      }
+    }
+    return refreshSec === undefined
+      ? { kind: "tool", toolName }
+      : { kind: "tool", toolName, refreshSec };
+  }
+  if (kind === "canvas") {
+    const documentId = normalizeOptionalString(value.documentId);
+    if (!documentId) {
+      return undefined;
+    }
+    return { kind: "canvas", documentId };
+  }
+  if (kind === "iframe") {
+    const url = normalizeOptionalString(value.url);
+    if (!url || !isSafeIframeUrl(url)) {
+      return undefined;
+    }
+    return { kind: "iframe", url };
+  }
+  return undefined;
+}
+
+function normalizeManifestControlUiPanels(
+  value: unknown,
+): PluginManifestControlUiPanel[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const panels: PluginManifestControlUiPanel[] = [];
+  const seenIds = new Set<string>();
+  for (const raw of value) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const id = normalizeOptionalString(raw.id);
+    const title = normalizeOptionalString(raw.title);
+    if (!id || !title || seenIds.has(id)) {
+      continue;
+    }
+    if (!isControlUiPanelPosition(raw.preferredPosition)) {
+      continue;
+    }
+    const source = normalizeControlUiPanelSource(raw.source);
+    if (!source) {
+      continue;
+    }
+    panels.push({ id, title, preferredPosition: raw.preferredPosition, source });
+    seenIds.add(id);
+  }
+  return panels.length > 0 ? panels : undefined;
+}
+
 function normalizeManifestSetupProviders(
   value: unknown,
 ): PluginManifestSetupProvider[] | undefined {
@@ -956,6 +1122,7 @@ export function loadPluginManifest(
   const channelEnvVars = normalizeStringListRecord(raw.channelEnvVars);
   const providerAuthChoices = normalizeProviderAuthChoices(raw.providerAuthChoices);
   const activation = normalizeManifestActivation(raw.activation);
+  const controlUiPanels = normalizeManifestControlUiPanels(raw.controlUiPanels);
   const setup = normalizeManifestSetup(raw.setup);
   const qaRunners = normalizeManifestQaRunners(raw.qaRunners);
   const skills = normalizeTrimmedStringList(raw.skills);
@@ -997,6 +1164,7 @@ export function loadPluginManifest(
       channelEnvVars,
       providerAuthChoices,
       activation,
+      controlUiPanels,
       setup,
       qaRunners,
       skills,
