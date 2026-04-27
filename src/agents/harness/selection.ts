@@ -327,7 +327,8 @@ export function resolveAgentHarnessPolicy(params: {
   // Defer to the plugin if and only if a registered harness exists at
   // resolution time; otherwise preserve the legacy PI fallback so
   // unconfigured users keep working.
-  if (isCliRuntimeAlias(runtime) && !(runtime && getRegisteredAgentHarness(runtime))) {
+  const registeredHarness = runtime ? getRegisteredAgentHarness(runtime) : undefined;
+  if (isCliRuntimeAlias(runtime) && !registeredHarness) {
     return {
       runtime: "pi",
       fallback: "pi",

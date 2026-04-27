@@ -4,7 +4,7 @@ title: "Agent harness plugins"
 sidebarTitle: "Agent Harness"
 read_when:
   - You are changing the embedded agent runtime or harness registry
-  - You are registering an agent harness from a bundled or trusted plugin
+  - You are registering an agent harness from a plugin (bundled or third party)
   - You need to understand how the Codex plugin relates to model providers
 ---
 
@@ -12,9 +12,13 @@ An **agent harness** is the low level executor for one prepared OpenClaw agent
 turn. It is not a model provider, not a channel, and not a tool registry.
 For the user-facing mental model, see [Agent runtimes](/concepts/agent-runtimes).
 
-Use this surface only for bundled or trusted native plugins. The contract is
-still experimental because the parameter types intentionally mirror the current
-embedded runner.
+Use this surface from any plugin (bundled or third party) that owns a native
+agent runtime. The plugin SDK seam is wired through the loader (round-trip
+covered by `src/plugins/loader.test.ts`); CLI runtime aliases like `claude-cli`
+defer to a plugin-registered harness when one claims that id. The contract is
+still labeled experimental because the parameter types intentionally mirror
+the current embedded runner; the underlying registration path is stable and
+covered by contract tests.
 
 ## When to use a harness
 
@@ -325,8 +329,11 @@ on the same delivery path as PI-backed runs.
 
 - The public import path is generic, but some attempt/result type aliases still
   carry `Pi` names for compatibility.
-- Third-party harness installation is experimental. Prefer provider plugins
-  until you need a native session runtime.
+- Third-party harness installation is supported via the standard plugin SDK
+  (`api.registerAgentHarness({...})`); the loader's contract test pins the
+  round-trip. Prefer a provider plugin first; reach for a harness when you
+  truly need a native session runtime (e.g. wrapping a local CLI agent
+  daemon).
 - Harness switching is supported across turns. Do not switch harnesses in the
   middle of a turn after native tools, approvals, assistant text, or message
   sends have started.
