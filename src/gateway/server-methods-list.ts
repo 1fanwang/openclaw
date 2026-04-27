@@ -54,6 +54,7 @@ const BASE_METHODS = [
   "talk.speak",
   "talk.mode",
   "commands.list",
+  "controlUi.listPanels",
   "models.list",
   "models.authStatus",
   "tools.catalog",
