@@ -752,6 +752,11 @@ function isSafeIframeUrl(url: string): boolean {
   } catch {
     return false;
   }
+  // Reject userinfo (`https://user:pass@host/...`) — these obscure the
+  // real host and leak credentials via the iframe request.
+  if (parsed.username !== "" || parsed.password !== "") {
+    return false;
+  }
   if (parsed.protocol === "https:") {
     return true;
   }

@@ -379,6 +379,19 @@ describe("plugin manifest controlUiPanels (additive seam)", () => {
           preferredPosition: "tab",
           source: { kind: "iframe", url: "https://example.com/foo bar" },
         },
+        // dropped: userinfo present (credentials leak / host-spoofing)
+        {
+          id: "userinfo",
+          title: "Userinfo",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "https://user:pass@example.com/panel" },
+        },
+        {
+          id: "user-only",
+          title: "UserOnly",
+          preferredPosition: "tab",
+          source: { kind: "iframe", url: "https://user@example.com/panel" },
+        },
         // dropped: empty
         {
           id: "empty",
