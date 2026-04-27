@@ -1,10 +1,12 @@
 import { html, nothing } from "lit";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { t } from "../../i18n/index.ts";
 import {
   extractToolResultText,
   panelKey,
   type PanelInvokeState,
 } from "../controllers/control-ui-panels.ts";
+import { toSanitizedMarkdownHtml } from "../markdown.ts";
 import type { ControlUiPanelContribution } from "../types.ts";
 
 export type PanelsState = {
@@ -95,21 +97,21 @@ function renderToolResultBody(invoke: PanelInvokeState | undefined) {
   }
   const text = extractToolResultText(invoke.result);
   if (text !== null) {
-    return html`<pre
+    const sanitized = toSanitizedMarkdownHtml(text);
+    return html`<div
+      class="panel-tool-result markdown-body"
       style="
-        margin: 0;
-        font-family: ui-monospace, Menlo, monospace;
-        font-size: 12px;
-        white-space: pre-wrap;
-        max-height: 360px;
+        font-size: 13px;
+        line-height: 1.5;
+        max-height: 480px;
         overflow: auto;
-        padding: 8px;
+        padding: 8px 12px;
         background: var(--color-bg, #f6f8fa);
         border-radius: 4px;
       "
     >
-${text}</pre
-    >`;
+      ${unsafeHTML(sanitized)}
+    </div>`;
   }
   if (invoke.result !== null && invoke.result !== undefined) {
     return html`<pre
