@@ -20,7 +20,7 @@ import {
 } from "../pi-embedded-runner/runtime.js";
 import type { EmbeddedPiCompactResult } from "../pi-embedded-runner/types.js";
 import { createPiAgentHarness } from "./builtin-pi.js";
-import { listRegisteredAgentHarnesses } from "./registry.js";
+import { getRegisteredAgentHarness, listRegisteredAgentHarnesses } from "./registry.js";
 import type { AgentHarness, AgentHarnessSupport } from "./types.js";
 import { adaptAgentHarnessToV2, runAgentHarnessV2LifecycleAttempt } from "./v2.js";
 
@@ -320,7 +320,14 @@ export function resolveAgentHarnessPolicy(params: {
   const runtime = env.OPENCLAW_AGENT_RUNTIME?.trim()
     ? resolveEmbeddedAgentRuntime(env)
     : normalizeEmbeddedAgentRuntime(agentPolicy?.id ?? defaultsPolicy?.id);
-  if (isCliRuntimeAlias(runtime)) {
+  // CLI runtime aliases (`claude-cli`, `codex-cli`, etc.) historically
+  // short-circuit to PI because no harness existed for them. With
+  // plugin-contributed harnesses, a plugin can now claim one of those
+  // ids by calling `api.registerAgentHarness({ id: "claude-cli", ... })`.
+  // Defer to the plugin if and only if a registered harness exists at
+  // resolution time; otherwise preserve the legacy PI fallback so
+  // unconfigured users keep working.
+  if (isCliRuntimeAlias(runtime) && !(runtime && getRegisteredAgentHarness(runtime))) {
     return {
       runtime: "pi",
       fallback: "pi",

@@ -433,6 +433,47 @@ describe("selectAgentHarness", () => {
     });
   });
 
+  it("yields a CLI runtime alias to a plugin-registered harness with the same id", () => {
+    // Plugin claims `claude-cli` as a runtime via registerAgentHarness.
+    // The legacy CLI-alias short-circuit must defer to the plugin so
+    // third-party harnesses can wrap the local `claude` CLI without core
+    // hand-coding.
+    registerAgentHarness(
+      {
+        id: "claude-cli",
+        label: "Plugin Claude CLI",
+        supports: (ctx) =>
+          ctx.provider === "anthropic" ? { supported: true, priority: 100 } : { supported: false },
+        runAttempt: vi.fn(async () => {
+          throw new Error("plugin claude-cli stub");
+        }),
+      },
+      { ownerPluginId: "test-plugin-claude-cli" },
+    );
+    const config: OpenClawConfig = {
+      agents: {
+        defaults: {
+          agentRuntime: { id: "claude-cli", fallback: "none" },
+        },
+      },
+    };
+    expect(
+      selectAgentHarness({ provider: "anthropic", modelId: "claude-sonnet-4.6", config }).id,
+    ).toBe("claude-cli");
+  });
+
+  it("falls back to PI for unregistered CLI runtime aliases (codex-cli without plugin)", () => {
+    const config: OpenClawConfig = {
+      agents: {
+        defaults: {
+          agentRuntime: { id: "codex-cli", fallback: "none" },
+        },
+      },
+    };
+    // No plugin registered `codex-cli` → keeps the legacy PI fallback.
+    expect(selectAgentHarness({ provider: "openai", modelId: "gpt-5.4", config }).id).toBe("pi");
+  });
+
   it("keeps an existing session pinned to PI even when config now forces a plugin harness", () => {
     registerFailingCodexHarness();
 
