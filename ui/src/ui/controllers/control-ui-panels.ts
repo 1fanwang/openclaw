@@ -21,6 +21,7 @@ export type ControlUiPanelsState = {
   panelsError: string | null;
   panelsLastSuccess: number | null;
   panelResults: Record<string, PanelInvokeState>;
+  panelRefreshTimers: Record<string, ReturnType<typeof setInterval>>;
   hello?: { auth?: { deviceToken?: string | null } | null } | null;
   settings?: { token?: string | null } | null;
   password?: string | null;
@@ -121,6 +122,53 @@ export async function invokePanelTool(
       },
     };
   }
+}
+
+// Floor on the auto-refresh interval — refuses to honor a plugin manifest that
+// asks for refresh-every-second-or-less behavior, since that hammers /tools/invoke
+// without a real benefit. Plugin authors who want fast-refresh can still use
+// `refreshSec: 5` explicitly.
+const MIN_REFRESH_INTERVAL_SEC = 5;
+
+export function startPanelAutoRefresh(
+  state: ControlUiPanelsState,
+  fetchImpl: typeof fetch = fetch,
+): void {
+  if (!state.panelsContributions) {
+    return;
+  }
+  for (const c of state.panelsContributions) {
+    if (c.panel.source.kind !== "tool") {
+      continue;
+    }
+    const refreshSec = c.panel.source.refreshSec;
+    if (!refreshSec) {
+      continue;
+    }
+    const key = panelKey(c);
+    if (state.panelRefreshTimers[key]) {
+      continue;
+    }
+    const prev = state.panelResults[key];
+    const isStale = !prev?.lastFetchedAt;
+    if (isStale && !prev?.loading) {
+      void invokePanelTool(state, c, fetchImpl);
+    }
+    const intervalMs = Math.max(refreshSec, MIN_REFRESH_INTERVAL_SEC) * 1000;
+    state.panelRefreshTimers = {
+      ...state.panelRefreshTimers,
+      [key]: setInterval(() => {
+        void invokePanelTool(state, c, fetchImpl);
+      }, intervalMs),
+    };
+  }
+}
+
+export function stopPanelAutoRefresh(state: ControlUiPanelsState): void {
+  for (const timer of Object.values(state.panelRefreshTimers)) {
+    clearInterval(timer);
+  }
+  state.panelRefreshTimers = {};
 }
 
 export function extractToolResultText(result: unknown): string | null {

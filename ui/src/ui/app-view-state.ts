@@ -217,6 +217,7 @@ export type AppViewState = {
     string,
     { loading: boolean; result: unknown; error: string | null; lastFetchedAt: number | null }
   >;
+  panelRefreshTimers: Record<string, ReturnType<typeof setInterval>>;
   whatsappLoginMessage: string | null;
   whatsappLoginQrDataUrl: string | null;
   whatsappLoginConnected: boolean | null;

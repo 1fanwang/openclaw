@@ -71,6 +71,8 @@ import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./contro
 import {
   invokePanelTool as invokePanelToolInternal,
   loadControlUiPanels as loadControlUiPanelsInternal,
+  startPanelAutoRefresh,
+  stopPanelAutoRefresh,
 } from "./controllers/control-ui-panels.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type {
@@ -335,6 +337,7 @@ export class OpenClawApp extends LitElement {
     string,
     { loading: boolean; result: unknown; error: string | null; lastFetchedAt: number | null }
   > = {};
+  panelRefreshTimers: Record<string, ReturnType<typeof setInterval>> = {};
   @state() whatsappLoginMessage: string | null = null;
   @state() whatsappLoginQrDataUrl: string | null = null;
   @state() whatsappLoginConnected: boolean | null = null;
@@ -694,6 +697,7 @@ export class OpenClawApp extends LitElement {
 
   async loadControlUiPanels() {
     await loadControlUiPanelsInternal(this);
+    startPanelAutoRefresh(this);
   }
 
   async invokePanelTool(contribution: ControlUiPanelContribution) {
@@ -712,10 +716,14 @@ export class OpenClawApp extends LitElement {
   }
 
   setTab(next: Tab) {
+    const prev = this.tab;
     setTabInternal(this as unknown as Parameters<typeof setTabInternal>[0], next);
     this.navDrawerOpen = false;
     if (next === "panels") {
       void this.loadControlUiPanels();
+    }
+    if (prev === "panels" && next !== "panels") {
+      stopPanelAutoRefresh(this);
     }
   }
 
