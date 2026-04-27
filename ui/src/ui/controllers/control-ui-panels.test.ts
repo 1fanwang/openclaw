@@ -6,6 +6,8 @@ import {
   invokePanelTool,
   loadControlUiPanels,
   panelKey,
+  startPanelAutoRefresh,
+  stopPanelAutoRefresh,
   type ControlUiPanelsState,
 } from "./control-ui-panels.ts";
 
@@ -18,6 +20,7 @@ function createState(overrides: Partial<ControlUiPanelsState> = {}): ControlUiPa
     panelsError: null,
     panelsLastSuccess: null,
     panelResults: {},
+    panelRefreshTimers: {},
     ...overrides,
   };
 }
@@ -206,6 +209,153 @@ describe("invokePanelTool", () => {
     });
     await invokePanelTool(state, TOOL_CONTRIB, fetchMock);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+const REFRESHING_TOOL_CONTRIB: ControlUiPanelContribution = {
+  pluginId: "plugin-a",
+  panel: {
+    id: "p-refresh",
+    title: "Refreshing",
+    preferredPosition: "tab",
+    source: { kind: "tool", toolName: "demo.tool", refreshSec: 30 },
+  },
+};
+
+const NON_REFRESHING_TOOL_CONTRIB: ControlUiPanelContribution = {
+  pluginId: "plugin-a",
+  panel: {
+    id: "p-static",
+    title: "Static",
+    preferredPosition: "tab",
+    source: { kind: "tool", toolName: "demo.tool" },
+  },
+};
+
+describe("startPanelAutoRefresh", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it("eagerly invokes contributions with refreshSec when result is stale", () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, result: {} })));
+    const state = createState({
+      panelsContributions: [REFRESHING_TOOL_CONTRIB, NON_REFRESHING_TOOL_CONTRIB],
+    });
+
+    startPanelAutoRefresh(state, fetchMock);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(state.panelRefreshTimers[panelKey(REFRESHING_TOOL_CONTRIB)]).toBeDefined();
+    expect(state.panelRefreshTimers[panelKey(NON_REFRESHING_TOOL_CONTRIB)]).toBeUndefined();
+  });
+
+  it("does not eagerly invoke when a recent fetch already happened", () => {
+    const fetchMock = vi.fn();
+    const state = createState({
+      panelsContributions: [REFRESHING_TOOL_CONTRIB],
+      panelResults: {
+        [panelKey(REFRESHING_TOOL_CONTRIB)]: {
+          loading: false,
+          result: { content: [{ type: "text", text: "cached" }] },
+          error: null,
+          lastFetchedAt: Date.now() - 1000,
+        },
+      },
+    });
+
+    startPanelAutoRefresh(state, fetchMock);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(state.panelRefreshTimers[panelKey(REFRESHING_TOOL_CONTRIB)]).toBeDefined();
+  });
+
+  it("re-fires the tool on the refresh interval", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, result: {} })));
+    const state = createState({
+      panelsContributions: [REFRESHING_TOOL_CONTRIB],
+    });
+
+    startPanelAutoRefresh(state, fetchMock);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("floors sub-5s intervals to 5s to avoid hammering /tools/invoke", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, result: {} })));
+    const speedy: ControlUiPanelContribution = {
+      pluginId: "p",
+      panel: {
+        id: "speed",
+        title: "Speed",
+        preferredPosition: "tab",
+        source: { kind: "tool", toolName: "speed.tool", refreshSec: 1 },
+      },
+    };
+    const state = createState({ panelsContributions: [speedy] });
+
+    startPanelAutoRefresh(state, fetchMock);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // not yet — floored to 5s
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not double-schedule on a second start", () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, result: {} })));
+    const state = createState({
+      panelsContributions: [REFRESHING_TOOL_CONTRIB],
+    });
+
+    startPanelAutoRefresh(state, fetchMock);
+    const firstTimer = state.panelRefreshTimers[panelKey(REFRESHING_TOOL_CONTRIB)];
+    startPanelAutoRefresh(state, fetchMock);
+    const secondTimer = state.panelRefreshTimers[panelKey(REFRESHING_TOOL_CONTRIB)];
+    expect(secondTimer).toBe(firstTimer);
+  });
+
+  it("no-ops when there are no contributions", () => {
+    const fetchMock = vi.fn();
+    const state = createState();
+    startPanelAutoRefresh(state, fetchMock);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("stopPanelAutoRefresh", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it("clears all scheduled intervals and empties the timers map", () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, result: {} })));
+    const state = createState({ panelsContributions: [REFRESHING_TOOL_CONTRIB] });
+    startPanelAutoRefresh(state, fetchMock);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    stopPanelAutoRefresh(state);
+    expect(state.panelRefreshTimers).toEqual({});
+
+    vi.advanceTimersByTime(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
