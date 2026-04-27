@@ -1,4 +1,4 @@
-import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js";
+import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/run-state.js";
 import { getTotalPendingReplies } from "../auto-reply/reply/dispatcher-registry.js";
 import type { CanvasHostServer } from "../canvas-host/server.js";
 import { type ChannelId, listChannelPlugins } from "../channels/plugins/index.js";
@@ -32,7 +32,6 @@ import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/di
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import { getActiveBundledRuntimeDepsInstallCount } from "../plugins/bundled-runtime-deps-activity.js";
 import { runGlobalGatewayStopSafely } from "../plugins/hook-runner-global.js";
-import { createRuntimeChannel } from "../plugins/runtime/runtime-channel.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import { getTotalQueueSize } from "../process/command-queue.js";
 import type { RuntimeEnv } from "../runtime.js";
@@ -46,7 +45,6 @@ import {
 } from "../tasks/task-registry.maintenance.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { resolveGatewayAuth } from "./auth.js";
-import { closeMcpLoopbackServer } from "./mcp-http.js";
 import { createGatewayAuxHandlers } from "./server-aux-handlers.js";
 import { createChannelManager } from "./server-channels.js";
 import { createGatewayCloseHandler, runGatewayClosePrelude } from "./server-close.js";
@@ -118,11 +116,18 @@ const logDiscovery = log.child("discovery");
 const logTailscale = log.child("tailscale");
 const logChannels = log.child("channels");
 
-let cachedChannelRuntime: PluginRuntime["channel"] | null = null;
+let cachedChannelRuntimePromise: Promise<PluginRuntime["channel"]> | null = null;
 
 function getChannelRuntime() {
-  cachedChannelRuntime ??= createRuntimeChannel();
-  return cachedChannelRuntime;
+  cachedChannelRuntimePromise ??= import("../plugins/runtime/runtime-channel.js").then(
+    ({ createRuntimeChannel }) => createRuntimeChannel(),
+  );
+  return cachedChannelRuntimePromise;
+}
+
+async function closeMcpLoopbackServerOnDemand(): Promise<void> {
+  const { closeMcpLoopbackServer } = await import("./mcp-http.js");
+  await closeMcpLoopbackServer();
 }
 
 const logHealth = log.child("health");
@@ -593,7 +598,7 @@ export async function startGatewayServer(
       stopModelPricingRefresh: runtimeState.stopModelPricingRefresh,
       stopChannelHealthMonitor: () => runtimeState?.channelHealthMonitor?.stop(),
       clearSecretsRuntimeSnapshot,
-      closeMcpServer: async () => await closeMcpLoopbackServer(),
+      closeMcpServer: closeMcpLoopbackServerOnDemand,
     });
   const { getRuntimeSnapshot, startChannels, startChannel, stopChannel, markChannelLoggedOut } =
     channelManager;

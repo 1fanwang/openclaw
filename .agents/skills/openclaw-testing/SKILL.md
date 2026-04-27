@@ -149,7 +149,7 @@ Use one run per line:
 ```text
 full-release-validation openclaw/openclaw <run-id> blocking
 package-acceptance openclaw/openclaw <run-id> blocking
-private-cross-os openclaw/releases-private <run-id> advisory
+release-checks openclaw/openclaw <run-id> blocking
 ```
 
 Store summaries, run URLs, artifact metadata, timings, pass/fail state, and
@@ -278,15 +278,18 @@ generated inside GitHub artifacts include `package_artifact_run_id`,
 exact tarball and prepared images from the failed run. When the fix changes
 package contents, omit those reuse inputs so the workflow packs a new tarball.
 Live-only targeted reruns skip the E2E images and build only the live-test
-image. Release-path normal mode is split into these Docker chunks:
+image. Release-path normal mode remains max three Docker chunk jobs:
 
 - `core`
-- `package-install`
 - `package-update`
-- `plugins`
-- `bundled-channel-deps`
-- `service-integrations`
-- `openwebui` when OpenWebUI coverage is requested
+- `plugins-integrations`
+
+OpenWebUI is folded into `plugins-integrations` for full release-path coverage
+and keeps a standalone `openwebui` chunk only for OpenWebUI-only dispatches.
+The bundled-channel runtime-dependency coverage inside `plugins-integrations`
+uses the split `bundled-channel-*` and `bundled-channel-update-*` lanes rather
+than the serial `bundled-channel-deps` lane, so failures produce cheap targeted
+reruns for the exact channel/update scenario.
 
 ## Package Acceptance
 
@@ -449,7 +452,7 @@ these rough bands:
   `session-runtime-context` ~20s, `gateway-network` ~34s, `qr` ~44s.
 - Medium deterministic lanes, ~1-5 minutes:
   `npm-onboard-channel-agent` ~96s, `openai-image-auth` ~99s,
-  bundled channel/update lanes usually ~90-300s, `openwebui` ~225s,
+  bundled channel/update lanes usually ~90-300s when split, `openwebui` ~225s,
   `mcp-channels` ~274s.
 - Heavy deterministic lanes, ~6-10 minutes:
   `bundled-channel-root-owned` ~429s,
