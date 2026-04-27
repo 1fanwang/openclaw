@@ -35,6 +35,7 @@ import {
   type PluginManifestChannelCommandDefaults,
   type PluginManifestChannelConfig,
   type PluginManifestContracts,
+  type PluginManifestControlUiPanel,
   type PluginManifestMediaUnderstandingProviderMetadata,
   type PluginManifestModelCatalog,
   type PluginManifestModelSupport,
@@ -122,6 +123,7 @@ export type PluginManifestRecord = {
   channelEnvVars?: Record<string, string[]>;
   providerAuthChoices?: PluginManifest["providerAuthChoices"];
   activation?: PluginManifestActivation;
+  controlUiPanels?: PluginManifestControlUiPanel[];
   setup?: PluginManifestSetup;
   qaRunners?: PluginManifestQaRunner[];
   skills: string[];
@@ -347,6 +349,7 @@ function buildRecord(params: {
     channelEnvVars: params.manifest.channelEnvVars,
     providerAuthChoices: params.manifest.providerAuthChoices,
     activation: params.manifest.activation,
+    controlUiPanels: params.manifest.controlUiPanels,
     setup: params.manifest.setup,
     qaRunners: params.manifest.qaRunners,
     skills: params.manifest.skills ?? [],
@@ -752,4 +755,43 @@ export function loadPluginManifestRegistry(
     }
   }
   return registry;
+}
+
+/**
+ * One contribution from a single plugin's `controlUiPanels` manifest field,
+ * carrying the contributing plugin's id alongside the panel descriptor.
+ *
+ * Cross-plugin id scoping happens here, not in the manifest validator: each
+ * panel keyed by `<pluginId>:<panel.id>` so two plugins can independently
+ * declare a panel id like `status` without colliding.
+ */
+export type PluginManifestControlUiPanelContribution = {
+  pluginId: string;
+  panel: PluginManifestControlUiPanel;
+};
+
+/**
+ * Flatten every loaded plugin's `controlUiPanels` into a single read-only
+ * list, preserving plugin load order (the order the registry's
+ * `plugins[]` is built). Each entry carries the contributing plugin's id
+ * so consumers can scope panel ids per-plugin without inspecting record
+ * order.
+ *
+ * Skips plugins that don't declare the field (the common case for now).
+ * Pure: no I/O, no caching beyond the registry's own; safe to call from
+ * cold paths and request handlers.
+ */
+export function listControlUiPanelContributions(
+  registry: PluginManifestRegistry,
+): PluginManifestControlUiPanelContribution[] {
+  const out: PluginManifestControlUiPanelContribution[] = [];
+  for (const record of registry.plugins) {
+    if (!record.controlUiPanels) {
+      continue;
+    }
+    for (const panel of record.controlUiPanels) {
+      out.push({ pluginId: record.id, panel });
+    }
+  }
+  return out;
 }
